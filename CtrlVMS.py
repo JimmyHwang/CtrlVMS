@@ -199,6 +199,18 @@ def MD5(data):
   md5 = hashlib.md5()
   md5.update(data.encode('utf-8'))
   return md5.hexdigest()
+
+def IsCommandExists(cmd):
+  st = False
+  cmds = "whereis %s" % cmd
+  (status, output) = Exec(cmds)
+  if status == 0:
+    lines = output.splitlines()
+    for line in lines:
+      words = line.decode("utf-8").split(":")
+      if words[0] == cmd and words[1] != "":
+        st = True
+  return st      
   
 #------------------------------------------------------------------------------
 # CONFIG_CLASS
@@ -231,49 +243,54 @@ class CONFIG_CLASS:
 class QEMU_CLASS:
   def __init__(self):
     self.Tag = "QEMU"
-    self.Items = ConfigObj.Data[self.Tag]
+    self.Enable = IsCommandExists("virsh")
+    if self.Tag in ConfigObj.Data:
+      self.Items = ConfigObj.Data[self.Tag]
+    else:
+      self.Items = []
 
   def InitCfg(self):
-    result = False
-    cmds = "virsh list"
-    (status, output) = Exec(cmds)
-    lines = output.splitlines()
-    self.Items = []
-    for line in lines:
-      fields = line.decode("utf-8").split()
-      if len(fields) == 3:
-        vm_id = fields[0]
-        vm_name = fields[1]
-        vm_state = fields[2]
-        if vm_id != "Id" and vm_state == "running":
-          item = {}
-          item["Name"] = vm_name
-          item["Managed"] = 1
-          self.Items.append(item)
-    ConfigObj.Data[self.Tag] = self.Items
-    return result
+    if self.Enable:
+      result = False
+      cmds = "virsh list"
+      (status, output) = Exec(cmds)
+      lines = output.splitlines()
+      self.Items = []
+      for line in lines:
+        fields = line.decode("utf-8").split()
+        if len(fields) == 3:
+          vm_id = fields[0]
+          vm_name = fields[1]
+          vm_state = fields[2]
+          if vm_id != "Id" and vm_state == "running":
+            item = {}
+            item["Name"] = vm_name
+            item["Managed"] = 1
+            self.Items.append(item)
+      ConfigObj.Data[self.Tag] = self.Items
 
   def WaitingFinish(self):
-    quit = False
-    count = 0
-    while quit == False:
-      delay_flag = False
-      for item in self.Items:
-        if item["Managed"] == 1:
-          vm_name = item["Name"]
-          vm_state = self.GetVmState(vm_name)
-          if vm_state == "running":
-            delay_flag = True
-      if delay_flag == False:
-        quit = True
-      else:
-        count = count + 1
-        print("Info: Delay 10 seconds for waiting VM shutdown (%d)" % count)
-        time.sleep(10)
-        if count == 6:
-          count = 0
-          print("Info: Send shutdown signal to VM again")
-          self.ShutdownAll()
+    if self.Enable:
+      quit = False
+      count = 0
+      while quit == False:
+        delay_flag = False
+        for item in self.Items:
+          if item["Managed"] == 1:
+            vm_name = item["Name"]
+            vm_state = self.GetVmState(vm_name)
+            if vm_state == "running":
+              delay_flag = True
+        if delay_flag == False:
+          quit = True
+        else:
+          count = count + 1
+          print("Info: Delay 10 seconds for waiting VM shutdown (%d)" % count)
+          time.sleep(10)
+          if count == 6:
+            count = 0
+            print("Info: Send shutdown signal to VM again")
+            self.ShutdownAll()
     
   def Startup(self, name):
     print("Startup QEMU VM [%s]" % name)
@@ -313,20 +330,22 @@ class QEMU_CLASS:
     return result
     
   def StartupAll(self):
-    for item in self.Items:
-      if item["Managed"] == 1:
-        vm_name = item["Name"]
-        vm_state = self.GetVmState(vm_name)
-        if vm_state != "running":
-          self.Startup(vm_name)
+    if self.Enable:
+      for item in self.Items:
+        if item["Managed"] == 1:
+          vm_name = item["Name"]
+          vm_state = self.GetVmState(vm_name)
+          if vm_state != "running":
+            self.Startup(vm_name)
         
   def ShutdownAll(self):
-    for item in self.Items:
-      if item["Managed"] == 1:
-        vm_name = item["Name"]
-        vm_state = self.GetVmState(vm_name)
-        if vm_state == "running":
-          self.Shutdown(vm_name)
+    if self.Enable:
+      for item in self.Items:
+        if item["Managed"] == 1:
+          vm_name = item["Name"]
+          vm_state = self.GetVmState(vm_name)
+          if vm_state == "running":
+            self.Shutdown(vm_name)
         
   def Debug(self):
     cmds = "virsh list"
@@ -352,25 +371,30 @@ class LXC_CLASS:
   def __init__(self):
     global ConfigObj
     self.Tag = "LXC"
-    self.Items = ConfigObj.Data[self.Tag]
+    self.Enable = IsCommandExists("lxc")
+    if self.Tag in ConfigObj.Data:
+      self.Items = ConfigObj.Data[self.Tag]
+    else:
+      self.Items = []
   
   def InitCfg(self):
-    cmds = "lxc-ls -f"
-    (status, output) = Exec(cmds)
-    lines = output.splitlines()
-    self.Items = []
-    for line in lines:
-      fields = line.decode("utf-8").split()
-      if len(fields) == 7:
-        vm_name = fields[0]
-        vm_state = fields[1]
-        vm_auto_start = fields[2]
-        if vm_state == "RUNNING":
-          item = {}
-          item["Name"] = vm_name
-          item["Managed"] = 1
-          self.Items.append(item)
-    ConfigObj.Data[self.Tag] = self.Items
+    if self.Enable:
+      cmds = "lxc-ls -f"
+      (status, output) = Exec(cmds)
+      lines = output.splitlines()
+      self.Items = []
+      for line in lines:
+        fields = line.decode("utf-8").split()
+        if len(fields) == 7:
+          vm_name = fields[0]
+          vm_state = fields[1]
+          vm_auto_start = fields[2]
+          if vm_state == "RUNNING":
+            item = {}
+            item["Name"] = vm_name
+            item["Managed"] = 1
+            self.Items.append(item)
+      ConfigObj.Data[self.Tag] = self.Items
      
   def Startup(self, name):
     print("Startup LXC Container [%s]" % name)
@@ -410,20 +434,22 @@ class LXC_CLASS:
     return result
     
   def StartupAll(self):
-    for item in self.Items:
-      if item["Managed"] == 1:
-        vm_name = item["Name"]
-        vm_state = self.GetContainerState(vm_name)
-        if vm_state != "RUNNING":
-          self.Startup(vm_name)
+    if self.Enable:
+      for item in self.Items:
+        if item["Managed"] == 1:
+          vm_name = item["Name"]
+          vm_state = self.GetContainerState(vm_name)
+          if vm_state != "RUNNING":
+            self.Startup(vm_name)
         
   def ShutdownAll(self):
-    for item in self.Items:
-      if item["Managed"] == 1:
-        vm_name = item["Name"]
-        vm_state = self.GetContainerState(vm_name)
-        if vm_state == "RUNNING":
-          self.Shutdown(vm_name)
+    if self.Enable:
+      for item in self.Items:
+        if item["Managed"] == 1:
+          vm_name = item["Name"]
+          vm_state = self.GetContainerState(vm_name)
+          if vm_state == "RUNNING":
+            self.Shutdown(vm_name)
           
   def Debug(self):
     cmds = "lxc-ls -f"
@@ -457,8 +483,12 @@ def InitConfigFile():
   
 def TestCode():
   global QemuObj
+  st = IsCommandExists("virsh")
+  print(st)
+  st = IsCommandExists("lxc")
+  print(st)
   # QemuObj.List()
-  QemuObj.ShutdownAll()
+  # QemuObj.ShutdownAll()
   # QemuObj.StartupAll()
   # LxcObj.List()
   
